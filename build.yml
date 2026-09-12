@@ -1,0 +1,97 @@
+name: HueBall APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Java kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Bagimliliklari yukle
+        run: npm install
+
+      - name: Android projesini olustur
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      # ---- Yatay kilit ----
+      - name: Manifest yamasi (yatay ekran)
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity"\n            android:screenOrientation="sensorLandscape"|' $MANIFEST
+          grep -n "screenOrientation" $MANIFEST
+
+      # ---- Tam ekran + centik alani ----
+      - name: MainActivity yamasi (tam ekran)
+        run: |
+          PKG_DIR=android/app/src/main/java/com/turkmavzercell/hueball
+          mkdir -p $PKG_DIR
+          cat > $PKG_DIR/MainActivity.java <<'JAVA'
+          package com.turkmavzercell.hueball;
+
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.WindowManager;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                      getWindow().getAttributes().layoutInDisplayCutoutMode =
+                          WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                  }
+                  hideBars();
+              }
+
+              @Override
+              public void onWindowFocusChanged(boolean hasFocus) {
+                  super.onWindowFocusChanged(hasFocus);
+                  if (hasFocus) hideBars();
+              }
+
+              private void hideBars() {
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+              }
+          }
+          JAVA
+          echo "MainActivity yazildi"
+
+      - name: APK derle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: APK yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hueball-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
