@@ -5,6 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  KEY_ALIAS: hueball
+  KEY_PASS: hueball2026
+  STORE_PASS: hueball2026
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -32,14 +37,12 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      # ---- Yatay kilit ----
       - name: Manifest yamasi (yatay ekran)
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's|android:name="\.MainActivity"|android:name=".MainActivity"\n            android:screenOrientation="sensorLandscape"|' $MANIFEST
           grep -n "screenOrientation" $MANIFEST
 
-      # ---- Tam ekran + centik alani ----
       - name: MainActivity yamasi (tam ekran)
         run: |
           PKG_DIR=android/app/src/main/java/com/turkmavzercell/hueball
@@ -83,15 +86,44 @@ jobs:
           JAVA
           echo "MainActivity yazildi"
 
-      - name: APK derle
+      - name: Imza anahtarini yerlestir
+        run: |
+          if [ -f hueball.jks ]; then
+            cp hueball.jks android/app/hueball.jks
+            echo "depodaki sabit anahtar kullanildi"
+          else
+            echo "HATA: hueball.jks depoda bulunamadi"; exit 1
+          fi
+          ls -la android/app/hueball.jks
+
+      - name: APK derle (imzasiz release)
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
+          ls -la app/build/outputs/apk/release/
+
+      - name: APK imzala (sabit anahtar)
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
+          OUT=android/app/build/outputs/apk/release
+          RAW=$(ls $OUT/*.apk | head -1)
+          echo "girdi: $RAW"
+          $BT/zipalign -p -f 4 "$RAW" $OUT/hueball-aligned.apk
+          $BT/apksigner sign \
+            --ks android/app/hueball.jks \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass pass:"$STORE_PASS" \
+            --key-pass pass:"$KEY_PASS" \
+            --out $OUT/hueball.apk \
+            $OUT/hueball-aligned.apk
+          $BT/apksigner verify --print-certs $OUT/hueball.apk
+          ls -la $OUT/hueball.apk
 
       - name: APK yukle
         uses: actions/upload-artifact@v4
         with:
           name: hueball-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/release/hueball.apk
           if-no-files-found: error
